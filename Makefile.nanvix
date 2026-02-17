@@ -102,4 +102,12 @@ install: $(STATICLIB)
 clean:
 	rm -f *.o $(STATICLIB)
 
-.PHONY: all clean install
+test: $(STATICLIB)
+	@echo "Running murmurhash tests..."
+	@test -f $(STATICLIB) && echo "  OK: $(STATICLIB) exists" || (echo "  FAIL: $(STATICLIB) not found" && exit 1)
+	@$(NANVIX_TOOLCHAIN)/bin/i686-nanvix-ar -t $(STATICLIB) | grep -q mrmr.o && echo "  OK: mrmr.o in archive" || (echo "  FAIL: mrmr.o not in archive" && exit 1)
+	@$(NANVIX_TOOLCHAIN)/bin/i686-nanvix-nm $(STATICLIB) | grep -q PyInit_mrmr && echo "  OK: PyInit_mrmr symbol found" || (echo "  FAIL: PyInit_mrmr not found" && exit 1)
+	@$(NANVIX_TOOLCHAIN)/bin/i686-nanvix-nm $(STATICLIB) | grep -q MurmurHash && echo "  OK: MurmurHash symbols found" || (echo "  FAIL: MurmurHash symbols not found" && exit 1)
+	@echo "\t\t*** murmurhash tests PASSED ***"
+
+.PHONY: all clean install test
