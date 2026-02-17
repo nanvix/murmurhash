@@ -1,0 +1,105 @@
+# Makefile.nanvix - murmurhash cross-compilation for Nanvix
+#
+# Copyright(c) The Maintainers of Nanvix.
+# Licensed under the MIT License.
+#
+# Usage:
+#   make -f Makefile.nanvix CONFIG_NANVIX=y NANVIX_HOME=/path/to/nanvix all
+
+NANVIX_DOCKER_IMAGE ?= nanvix/toolchain:latest-minimal
+
+ifdef CONFIG_NANVIX
+  NANVIX_TOOLCHAIN ?= /opt/nanvix
+  NANVIX_HOME ?= $(HOME)/nanvix
+
+  ifndef CONFIG_NANVIX_DOCKER
+    ifeq ($(wildcard $(NANVIX_TOOLCHAIN)/bin/i686-nanvix-gcc),)
+      DOCKER_AVAILABLE := $(shell command -v docker 2>/dev/null)
+      ifdef DOCKER_AVAILABLE
+        DOCKER_IMAGE_EXISTS := $(shell docker image inspect $(NANVIX_DOCKER_IMAGE) >/dev/null 2>&1 && echo yes)
+        ifdef DOCKER_IMAGE_EXISTS
+          CONFIG_NANVIX_DOCKER := y
+          $(info [INFO] Native toolchain not found at $(NANVIX_TOOLCHAIN), using Docker image $(NANVIX_DOCKER_IMAGE))
+        else
+          $(error Docker image $(NANVIX_DOCKER_IMAGE) not found. Run: docker pull $(NANVIX_DOCKER_IMAGE))
+        endif
+      else
+        $(error Nanvix toolchain not found at $(NANVIX_TOOLCHAIN) and Docker is not available)
+      endif
+    endif
+  else
+    DOCKER_AVAILABLE := $(shell command -v docker 2>/dev/null)
+    ifndef DOCKER_AVAILABLE
+      $(error CONFIG_NANVIX_DOCKER=y but Docker is not installed)
+    endif
+    DOCKER_IMAGE_EXISTS := $(shell docker image inspect $(NANVIX_DOCKER_IMAGE) >/dev/null 2>&1 && echo yes)
+    ifndef DOCKER_IMAGE_EXISTS
+      $(error Docker image $(NANVIX_DOCKER_IMAGE) not found. Run: docker pull $(NANVIX_DOCKER_IMAGE))
+    endif
+    $(info [INFO] Using Docker image $(NANVIX_DOCKER_IMAGE) (explicitly requested))
+  endif
+
+  ifdef CONFIG_NANVIX_DOCKER
+    DOCKER_TOOLCHAIN_PATH := /opt/nanvix
+    DOCKER_SYSROOT_PATH := /mnt/sysroot
+    DOCKER_WORKSPACE_PATH := /mnt/workspace
+    DOCKER_UID := $(shell id -u)
+    DOCKER_GID := $(shell id -g)
+    DOCKER_RUN := docker run --rm --user $(DOCKER_UID):$(DOCKER_GID) \
+      -v $(CURDIR):$(DOCKER_WORKSPACE_PATH) \
+      -v $(NANVIX_HOME):$(DOCKER_SYSROOT_PATH):ro \
+      -w $(DOCKER_WORKSPACE_PATH) \
+      -e HOME=/tmp \
+      $(NANVIX_DOCKER_IMAGE)
+    CC := $(DOCKER_RUN) $(DOCKER_TOOLCHAIN_PATH)/bin/i686-nanvix-gcc
+    CXX := $(DOCKER_RUN) $(DOCKER_TOOLCHAIN_PATH)/bin/i686-nanvix-g++
+    AR := $(DOCKER_RUN) $(DOCKER_TOOLCHAIN_PATH)/bin/i686-nanvix-ar
+    SYSROOT_INCLUDE := $(DOCKER_SYSROOT_PATH)/include
+  else
+    CC := $(NANVIX_TOOLCHAIN)/bin/i686-nanvix-gcc
+    CXX := $(NANVIX_TOOLCHAIN)/bin/i686-nanvix-g++
+    AR := $(NANVIX_TOOLCHAIN)/bin/i686-nanvix-ar
+    SYSROOT_INCLUDE := $(abspath $(NANVIX_HOME))/include
+  endif
+else
+  ifneq ($(MAKECMDGOALS),clean)
+    $(error CONFIG_NANVIX must be set to 'y'. Usage: make -f Makefile.nanvix CONFIG_NANVIX=y NANVIX_HOME=/path/to/nanvix)
+  endif
+endif
+
+CFLAGS = -O2 -I$(SYSROOT_INCLUDE) -I$(SYSROOT_INCLUDE)/python3.12 -Imurmurhash/include
+ARFLAGS = rcs
+STATICLIB = libmurmurhash.a
+
+C_OBJS = mrmr.o murmurhash2_cwrap.o murmurhash_cwrap.o
+CXX_OBJS = MurmurHash2.o MurmurHash3.o
+OBJS = $(C_OBJS) $(CXX_OBJS)
+
+all: $(STATICLIB)
+
+$(STATICLIB): $(OBJS)
+	$(AR) $(ARFLAGS) $@ $(OBJS)
+
+mrmr.o: murmurhash/mrmr.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+murmurhash2_cwrap.o: murmurhash/murmurhash2_cwrap.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+murmurhash_cwrap.o: murmurhash/murmurhash_cwrap.c
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+MurmurHash2.o: murmurhash/MurmurHash2.cpp
+	$(CXX) $(CFLAGS) -c -o $@ $<
+
+MurmurHash3.o: murmurhash/MurmurHash3.cpp
+	$(CXX) $(CFLAGS) -c -o $@ $<
+
+install: $(STATICLIB)
+	mkdir -p "$(DESTDIR)$(PREFIX)/lib"
+	install -m644 $(STATICLIB) "$(DESTDIR)$(PREFIX)/lib/"
+
+clean:
+	rm -f *.o $(STATICLIB)
+
+.PHONY: all clean install
