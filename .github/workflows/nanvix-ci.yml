@@ -94,8 +94,9 @@ jobs:
           CPYTHON_URL="https://github.com/nanvix/cpython/releases/latest/download/${CPYTHON_ARTIFACT}"
           if curl -fsSL -o "cpython-dep/${CPYTHON_ARTIFACT}" "$CPYTHON_URL"; then
             tar -xjf "cpython-dep/${CPYTHON_ARTIFACT}" -C cpython-dep
-            CPYTHON_DIR=$(find cpython-dep -maxdepth 1 -type d -name "sysroot" -o -name "cpython-*" | head -1)
+            CPYTHON_DIR=$(find cpython-dep -mindepth 1 -maxdepth 1 -type d \( -name "sysroot" -o -name "cpython-*" \) | head -1)
             if [[ -n "$CPYTHON_DIR" ]] && [[ -d "$CPYTHON_DIR" ]]; then
+              mkdir -p "$NANVIX_HOME/include"
               cp -rf "$CPYTHON_DIR"/include/* "$NANVIX_HOME/include/" 2>/dev/null || true
               echo "CPython headers installed"
             fi
